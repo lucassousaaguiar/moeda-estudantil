@@ -18,6 +18,11 @@ Sistema para estimular o reconhecimento do mérito estudantil por meio de uma **
   - [Histórias de usuário](#histórias-de-usuário)
   - [Diagrama de classes](#diagrama-de-classes)
   - [Diagrama de componentes](#diagrama-de-componentes)
+- [Banco de dados e CRUDs (Lab03S02)](#banco-de-dados-e-cruds-lab03s02)
+  - [Modelo ER](#modelo-er)
+  - [Estratégia de acesso ao banco de dados](#estratégia-de-acesso-ao-banco-de-dados)
+  - [CRUDs de aluno e empresa parceira](#cruds-de-aluno-e-empresa-parceira)
+  - [Como executar](#como-executar)
 - [Tecnologias escolhidas](#tecnologias-escolhidas)
 
 ## Status das sprints
@@ -29,10 +34,10 @@ Sistema para estimular o reconhecimento do mérito estudantil por meio de uma **
 - [x] Diagrama de componentes ([`docs/diagrama-componentes-v1.svg`](docs/diagrama-componentes-v1.svg))
 - [ ] URL do repositório enviada no Canvas
 
-### ⏳ Lab03S02 — Banco de dados e CRUDs (versão inicial)
-- [ ] Modelo ER
-- [ ] Estratégia de acesso ao banco (ORM com Spring Data JPA/Hibernate)
-- [ ] CRUD de aluno e de empresa parceira (front-end + comunicação com back-end)
+### ✅ Lab03S02 — Banco de dados e CRUDs (versão inicial)
+- [x] Modelo ER ([`docs/modelo-er-v1.svg`](docs/modelo-er-v1.svg))
+- [x] Estratégia de acesso ao banco definida e implementada: **ORM com Spring Data JPA/Hibernate** (entidades mapeadas + repositórios)
+- [x] CRUD de aluno e de empresa parceira funcionando (telas Thymeleaf + controllers + services + banco H2)
 
 ### ⏳ Lab03S03 — Versão final e apresentações
 - [ ] CRUDs de aluno e empresa parceira (versão final)
@@ -178,6 +183,67 @@ Arquitetura **MVC com Spring Boot** (exigência do enunciado):
 - **Controller** — controllers **Spring MVC** recebem as requisições HTTP do navegador, chamam os services e escolhem a view;
 - **Model** — **entidades JPA** (o modelo de domínio do diagrama de classes), **services** com as regras de negócio (RN01-RN08) e **repositories** Spring Data JPA que fazem o acesso ao banco via ORM (Hibernate);
 - O **Serviço de Email** (Spring Mail) fala com um servidor SMTP externo; o banco é **MySQL** (H2 em desenvolvimento).
+
+# Banco de dados e CRUDs (Lab03S02)
+
+## Modelo ER
+
+![Modelo ER — Sistema de Moeda Estudantil](docs/modelo-er-v1.svg)
+
+Decisões do modelo:
+
+- A herança de `Usuario` usa **tabelas separadas (JOINED)**: `USUARIO` guarda os dados comuns (nome, email, login, senha em hash) e `ALUNO`, `PROFESSOR` e `EMPRESA_PARCEIRA` guardam os dados específicos, com a chave primária igual à do usuário (PK = FK).
+- `TRANSACAO` usa **tabela única (SINGLE_TABLE)** com a coluna discriminadora `tipo` (`ENVIO`/`RESGATE`) — as duas especializações compartilham valor, data e aluno, e o extrato é uma consulta simples a uma só tabela.
+- `CONTA` é 1:1 com aluno e com professor; `VANTAGEM` é N:1 com a empresa; `INSTITUICAO` é pré-cadastrada e referenciada por alunos e professores.
+
+## Estratégia de acesso ao banco de dados
+
+**ORM com Spring Data JPA (Hibernate)** — definida e implementada:
+
+| Camada | Implementação |
+|---|---|
+| Mapeamento | Entidades JPA em [`model/`](src/main/java/br/pucminas/moedaestudantil/model) com `@Entity`, `@Inheritance` (JOINED em `Usuario`, SINGLE_TABLE em `Transacao`), `@OneToOne`, `@ManyToOne` e validações Bean Validation |
+| Acesso a dados | Interfaces `JpaRepository` em [`repository/`](src/main/java/br/pucminas/moedaestudantil/repository) — CRUD pronto, sem SQL manual |
+| Schema | Gerado pelo Hibernate a partir das entidades (`spring.jpa.hibernate.ddl-auto=update`) |
+| Banco | **H2 em arquivo** (`./dados/`) no desenvolvimento, com console em `/h2-console`; MySQL previsto para produção (mesmo mapeamento, troca de datasource) |
+
+## CRUDs de aluno e empresa parceira
+
+Fluxo MVC completo: telas Thymeleaf → controllers → services → repositories → H2.
+
+- **Aluno** (`/alunos`): listagem com saldo da conta, cadastro com todos os campos do enunciado (nome, email, CPF, RG, endereço, **instituição selecionada entre as pré-cadastradas** e curso), edição e exclusão. No cadastro a **conta de moedas é criada automaticamente** com saldo 0 e a senha é armazenada com **hash BCrypt**.
+- **Empresa parceira** (`/empresas`): listagem (com contagem de vantagens), cadastro com CNPJ e credenciais, edição e exclusão.
+- Validações: campos obrigatórios e email válido (Bean Validation, com mensagens nos campos) e unicidade de CPF/CNPJ/email/login (erro amigável na tela).
+
+| Lista de alunos | Cadastro de aluno | Empresas parceiras |
+|---|---|---|
+| ![Lista de alunos](docs/screenshots/aluno-lista.png) | ![Cadastro de aluno](docs/screenshots/aluno-form.png) | ![Empresas](docs/screenshots/empresa-lista.png) |
+
+## Como executar
+
+Pré-requisito: **JDK 21+** (o Maven Wrapper baixa o resto).
+
+```bash
+./mvnw spring-boot:run        # Windows: mvnw.cmd spring-boot:run
+```
+
+- Aplicação: http://localhost:8080
+- Console do banco H2: http://localhost:8080/h2-console (JDBC URL `jdbc:h2:file:./dados/moeda-estudantil`, usuário `sa`, sem senha)
+- Carga inicial: instituições (PUC Minas, UFMG, CEFET-MG) e um professor de exemplo (`mrezende`/`prof123`), conforme RN07/RF12
+- Para zerar o banco, apague a pasta `dados/`
+
+Estrutura do código (MVC):
+
+```
+src/main/java/br/pucminas/moedaestudantil/
+├── controller/   # C — AlunoController, EmpresaController, HomeController
+├── service/      # M — regras de negócio (AlunoService, EmpresaService)
+├── model/        # M — entidades JPA (Usuario, Aluno, Professor, EmpresaParceira,
+│                 #     Instituicao, Conta, Vantagem, Transacao, EnvioMoedas, ResgateVantagem)
+├── repository/   # M — interfaces Spring Data JPA
+└── config/       # carga inicial (DataSeeder)
+src/main/resources/templates/   # V — views Thymeleaf (home, alunos/, empresas/)
+```
 
 ## Tecnologias escolhidas
 
